@@ -134,62 +134,62 @@ export class PuppeteerManager {
 
     throw new Error(`Could not get Puppeteer page for tab ${tab.id}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
   }
-}
+
 
   /**
    * Set up request interception for performance optimization
    * Blocks unnecessary resources (images, fonts, ads, analytics)
    */
-  private async setupRequestInterception(page: Page): Promise < void> {
-  if(!this.enableResourceBlocking) {
-  return;
-}
-
-try {
-  await page.setRequestInterception(true);
-
-  page.on('request', (request) => {
-    const resourceType = request.resourceType();
-    const url = request.url();
-
-    // Block images, fonts, media for 2-3x speedup
-    if (BLOCK_PATTERNS.RESOURCE_TYPES.includes(resourceType as any)) {
-      request.abort();
+  private async setupRequestInterception(page: Page): Promise<void> {
+    if (!this.enableResourceBlocking) {
       return;
     }
 
-    // Block analytics and tracking
-    if (BLOCK_PATTERNS.ANALYTICS.some(pattern => url.includes(pattern))) {
-      request.abort();
-      return;
+    try {
+      await page.setRequestInterception(true);
+
+      page.on('request', (request) => {
+        const resourceType = request.resourceType();
+        const url = request.url();
+
+        // Block images, fonts, media for 2-3x speedup
+        if (BLOCK_PATTERNS.RESOURCE_TYPES.includes(resourceType as any)) {
+          request.abort();
+          return;
+        }
+
+        // Block analytics and tracking
+        if (BLOCK_PATTERNS.ANALYTICS.some(pattern => url.includes(pattern))) {
+          request.abort();
+          return;
+        }
+
+        // Allow everything else
+        request.continue();
+      });
+
+      console.log('✅ Request interception enabled for performance');
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+
+      // Only log if it's not the known Fetch.enable protocol error
+      if (!errorMsg.includes('Fetch.enable') && !errorMsg.includes("wasn't found")) {
+        console.warn('⚠️  Could not enable request interception:', error);
+      }
+      // Don't throw - this is optional optimization
+      // Request interception is not critical for functionality
     }
-
-    // Allow everything else
-    request.continue();
-  });
-
-  console.log('✅ Request interception enabled for performance');
-} catch (error) {
-  const errorMsg = error instanceof Error ? error.message : String(error);
-
-  // Only log if it's not the known Fetch.enable protocol error
-  if (!errorMsg.includes('Fetch.enable') && !errorMsg.includes("wasn't found")) {
-    console.warn('⚠️  Could not enable request interception:', error);
-  }
-  // Don't throw - this is optional optimization
-  // Request interception is not critical for functionality
-}
   }
 
-/**
- * Invalidate page cache for a specific tab
- */
-invalidateCache(tabId: string): void {
-  if(this.pageCache.has(tabId)) {
-  console.log(`🔄 Invalidating cache for tab ${tabId}`);
-  this.pageCache.delete(tabId);
-  this.cdpSessions.delete(tabId);
-}
+  /**
+   * Invalidate page cache for a specific tab
+   */
+  invalidateCache(tabId: string): void {
+    if (this.pageCache.has(tabId)) {
+      console.log(`🔄 Invalidating cache for tab ${tabId}`);
+      this.pageCache.delete(tabId);
+      this.cdpSessions.delete(tabId);
+    }
   }
 
 
@@ -197,86 +197,86 @@ invalidateCache(tabId: string): void {
   /**
    * Click an element using Puppeteer selector with coordinate fallback and network retry
    */
-  async clickElement(tab: Tab, selector: string): Promise < void> {
-  const clickOperation = async () => {
-    return this.executeOnTabWithRetry(tab, async (page) => {
-      await page.waitForSelector(selector, { timeout: TIMING.SELECTOR_TIMEOUT });
+  async clickElement(tab: Tab, selector: string): Promise<void> {
+    const clickOperation = async () => {
+      return this.executeOnTabWithRetry(tab, async (page) => {
+        await page.waitForSelector(selector, { timeout: TIMING.SELECTOR_TIMEOUT });
 
-      try {
-        // Strategy 1: Try standard click first (fastest)
-        await page.click(selector);
-        console.log('✓ Element clicked using standard method');
-      } catch (error) {
-        console.warn(`⚠️  Standard click failed, trying coordinate-based click...`);
+        try {
+          // Strategy 1: Try standard click first (fastest)
+          await page.click(selector);
+          console.log('✓ Element clicked using standard method');
+        } catch (error) {
+          console.warn(`⚠️  Standard click failed, trying coordinate-based click...`);
 
-        // Strategy 2: Coordinate-based click (more reliable)
-        const element = await page.$(selector);
-        if (!element) {
-          throw new Error(`Element with selector "${selector}" not found`);
+          // Strategy 2: Coordinate-based click (more reliable)
+          const element = await page.$(selector);
+          if (!element) {
+            throw new Error(`Element with selector "${selector}" not found`);
+          }
+
+          const box = await element.boundingBox();
+          if (!box) {
+            throw new Error(`Element "${selector}" has no bounding box (might be hidden)`);
+          }
+
+          // Click at center of element
+          const x = box.x + box.width / 2;
+          const y = box.y + box.height / 2;
+
+          console.log(`🎯 Clicking at coordinates (${x.toFixed(0)}, ${y.toFixed(0)})`);
+          await page.mouse.click(x, y);
+          console.log('✓ Element clicked using coordinate-based method');
         }
+      });
+    };
 
-        const box = await element.boundingBox();
-        if (!box) {
-          throw new Error(`Element "${selector}" has no bounding box (might be hidden)`);
-        }
-
-        // Click at center of element
-        const x = box.x + box.width / 2;
-        const y = box.y + box.height / 2;
-
-        console.log(`🎯 Clicking at coordinates (${x.toFixed(0)}, ${y.toFixed(0)})`);
-        await page.mouse.click(x, y);
-        console.log('✓ Element clicked using coordinate-based method');
-      }
-    });
-  };
-
-  // Retry on network errors if enabled
-  if(this.enableNetworkRetry) {
-  return retryWithBackoff(clickOperation, {
-    maxRetries: RETRY_LIMITS.NETWORK_ERROR_RETRIES,
-    initialDelay: TIMING.ACTION_DELAY,
-    retryOn: isNetworkError
-  });
-} else {
-  return clickOperation();
-}
+    // Retry on network errors if enabled
+    if (this.enableNetworkRetry) {
+      return retryWithBackoff(clickOperation, {
+        maxRetries: RETRY_LIMITS.NETWORK_ERROR_RETRIES,
+        initialDelay: TIMING.ACTION_DELAY,
+        retryOn: isNetworkError
+      });
+    } else {
+      return clickOperation();
+    }
   }
 
   /**
    * Execute a Puppeteer script on a tab with automatic retry for stale connections
    */
   async executeOnTabWithRetry<T>(
-  tab: Tab,
-  script: (page: Page) => Promise<T>,
-  maxRetries: number = RETRY_LIMITS.STALE_CONNECTION_RETRIES
-): Promise < T > {
-  for(let attempt = 1; attempt <= maxRetries; attempt++) {
-  try {
-    const page = await this.getPageForTab(tab, { skipCache: attempt > 1 });
-    return await script(page);
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    tab: Tab,
+    script: (page: Page) => Promise<T>,
+    maxRetries: number = RETRY_LIMITS.STALE_CONNECTION_RETRIES
+  ): Promise<T> {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        const page = await this.getPageForTab(tab, { skipCache: attempt > 1 });
+        return await script(page);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
 
-    // Check if error is due to stale connection
-    const isStaleConnection = ERROR_PATTERNS.STALE_CONNECTION.some(pattern =>
-      errorMsg.includes(pattern)
-    );
+        // Check if error is due to stale connection
+        const isStaleConnection = ERROR_PATTERNS.STALE_CONNECTION.some(pattern =>
+          errorMsg.includes(pattern)
+        );
 
-    if (isStaleConnection && attempt < maxRetries) {
-      console.warn(`⚠️  Stale Puppeteer connection, retrying (${attempt}/${maxRetries})...`);
-      // Invalidate cache to force fresh connection
-      this.invalidateCache(tab.id);
-      // Brief delay before retry
-      await new Promise(resolve => setTimeout(resolve, TIMING.STALE_CONNECTION_RETRY_DELAY));
-      continue;
+        if (isStaleConnection && attempt < maxRetries) {
+          console.warn(`⚠️  Stale Puppeteer connection, retrying (${attempt}/${maxRetries})...`);
+          // Invalidate cache to force fresh connection
+          this.invalidateCache(tab.id);
+          // Brief delay before retry
+          await new Promise(resolve => setTimeout(resolve, TIMING.STALE_CONNECTION_RETRY_DELAY));
+          continue;
+        }
+
+        // Not a stale connection error, or out of retries
+        throw error;
+      }
     }
-
-    // Not a stale connection error, or out of retries
-    throw error;
-  }
-}
-throw new Error('executeOnTabWithRetry: Should not reach here');
+    throw new Error('executeOnTabWithRetry: Should not reach here');
   }
 
 
@@ -284,38 +284,38 @@ throw new Error('executeOnTabWithRetry: Should not reach here');
    * Wait for an element to appear
    */
   async waitForElement(
-  tab: Tab,
-  selector: string,
-  options ?: { timeout?: number; visible?: boolean }
-): Promise < void> {
-  return this.executeOnTabWithRetry(tab, async (page) => {
-    await page.waitForSelector(selector, options);
-  });
-}
+    tab: Tab,
+    selector: string,
+    options?: { timeout?: number; visible?: boolean }
+  ): Promise<void> {
+    return this.executeOnTabWithRetry(tab, async (page) => {
+      await page.waitForSelector(selector, options);
+    });
+  }
 
-/**
- * Check if the manager is initialized
- */
-isInitialized(): boolean {
-  return this.initialized;
-}
+  /**
+   * Check if the manager is initialized
+   */
+  isInitialized(): boolean {
+    return this.initialized;
+  }
 
-/**
- * Get the browser instance (for advanced use cases)
- */
-getBrowser(): any {
-  return this.browser;
-}
+  /**
+   * Get the browser instance (for advanced use cases)
+   */
+  getBrowser(): any {
+    return this.browser;
+  }
 
   /**
    * Cleanup resources
    */
-  async cleanup(): Promise < void> {
-  // Clear page cache
-  this.pageCache.clear();
+  async cleanup(): Promise<void> {
+    // Clear page cache
+    this.pageCache.clear();
 
-  // Note: We don't disconnect the browser as it's tied to the Electron app lifecycle
-  this.initialized = false;
-}
+    // Note: We don't disconnect the browser as it's tied to the Electron app lifecycle
+    this.initialized = false;
+  }
 }
 

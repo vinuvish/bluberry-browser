@@ -10,7 +10,7 @@ import { ToolNode } from '@langchain/langgraph/prebuilt';
 import { BaseMessage, HumanMessage } from '@langchain/core/messages';
 import { HeadlessBrowserManager } from './HeadlessBrowserManager';
 import { createHeadlessBrowserTools } from './HeadlessBrowserTools';
-import { RETRY_LIMITS } from '../agent/constants';
+import { RETRY_LIMITS, MODELS } from '../agent/constants';
 
 const AgentState = Annotation.Root({
   messages: Annotation<BaseMessage[]>({
@@ -46,7 +46,7 @@ export class HeadlessAgentExecutor {
   constructor(browserManager: HeadlessBrowserManager) {
     this.browserManager = browserManager;
     this.llm = new ChatOpenAI({
-      model: process.env.LLM_MODEL || 'gpt-4o',
+      model: process.env.LLM_MODEL || MODELS.MAIN,
       temperature: 0.1,
       openAIApiKey: process.env.OPENAI_API_KEY,
     });

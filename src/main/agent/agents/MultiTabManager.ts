@@ -6,6 +6,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { AgentOrchestrator } from './AgentOrchestrator';
 import { createDocumentTools } from '../tools/DocumentTools';
+import { MODELS } from '../constants';
 import type { Window } from '../../Window';
 import type { SubTask, TaskResult, SubTaskResult, ExecutionPlan } from '../types';
 
@@ -72,7 +73,7 @@ export class MultiTabManager {
    */
   private async createExecutionPlan(userQuery: string): Promise<ExecutionPlan> {
     const llm = new ChatOpenAI({
-      model: 'gpt-4o',
+      model: MODELS.MAIN,
       temperature: 0
     });
 
@@ -230,7 +231,7 @@ If the task cannot be parallelized, set canParallelize to false and parallelTask
       // Try to extract structured data from results and create the file
       try {
         const llm = new ChatOpenAI({
-          model: 'gpt-4o',
+          model: MODELS.MAIN,
           temperature: 0
         });
 
@@ -253,24 +254,47 @@ Return ONLY valid JSON array, no other text.`;
         } else {
           // PDF or Word - needs sections structure
           toolName = needsPdf ? 'create_pdf' : 'create_word';
-          systemPrompt = 'You extract structured content for a document. Return ONLY valid JSON object matching the schema, no other text.';
+          systemPrompt = 'You extract structured content for a document. Return ONLY valid JSON object matching the schema, no other text. Create comprehensive, detailed content with substantial paragraphs.';
+
+          // Extract word count if specified in query (e.g., "1000 words", "10000 words", "10k words")
+          const wordCountMatch = originalQuery.match(/(\d+)[\s,]*(?:k|thousand|words)/i);
+          let targetWords = 1000; // default
+          if (wordCountMatch) {
+            targetWords = parseInt(wordCountMatch[1]);
+            if (/k|thousand/i.test(wordCountMatch[0])) {
+              targetWords *= 1000;
+            }
+          }
+
           extractionPrompt = `Original task: "${originalQuery}"
+
+IMPORTANT: Generate a comprehensive ${needsPdf ? 'PDF' : 'Word'} document with approximately ${targetWords} words total.
 
 Completed sub-tasks results:
 ${successfulResults.map((r, i) => `Sub-task ${i + 1} (${r.subTaskId}):\n${r.data}`).join('\n\n')}
 
-Extract the content and format it for a ${needsPdf ? 'PDF' : 'Word'} document.
+Extract ALL the content from the above results and format it for a detailed ${needsPdf ? 'PDF' : 'Word'} document.
+
+REQUIREMENTS:
+1. Create ${Math.max(5, Math.ceil(targetWords / 500))} comprehensive sections minimum
+2. Each section should have 3-5 detailed paragraphs (150-300 words each)
+3. Include ALL data, examples, statistics, and insights from the research
+4. Expand on key points with explanations and context
+5. Total content should be approximately ${targetWords} words
+
 Return a JSON object with this exact structure:
 {
   "title": "Document Title",
   "sections": [
     {
       "heading": "Section Heading",
-      "paragraphs": ["Paragraph 1", "Paragraph 2"],
-      "table": [{"col1": "val1", "col2": "val2"}] // Optional table data
+      "paragraphs": ["Detailed paragraph 1 (150+ words)...", "Detailed paragraph 2 (150+ words)...", "Detailed paragraph 3 (150+ words)..."]
     }
   ]
 }
+
+CRITICAL: Each paragraph must be comprehensive and detailed (150-300 words). Do not create short paragraphs. Extract and include ALL relevant information from the research results.
+
 Return ONLY valid JSON, no other text.`;
         }
 
@@ -315,7 +339,7 @@ Return ONLY valid JSON, no other text.`;
 
     // Fallback to text synthesis
     const llm = new ChatOpenAI({
-      model: 'gpt-4o',
+      model: MODELS.MAIN,
       temperature: 0
     });
 
@@ -412,3 +436,6 @@ Return ONLY valid JSON, no other text.`;
     this.activeWorkers.clear();
   }
 }
+
+
+//analyse how AI is changing the world and create report with 1000 words and create pdf

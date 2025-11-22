@@ -234,7 +234,7 @@ export class WebsiteAnalyzer {
   constructor() {
     // GPT-4 Vision for screenshot analysis
     this.visionLLM = new ChatOpenAI({
-      modelName: 'gpt-4o',
+      modelName: MODELS.MAIN,
       temperature: 0,
       maxTokens: 2000,
     });
@@ -363,9 +363,8 @@ export class WebsiteAnalyzer {
     semantic: Awaited<ReturnType<typeof extractSemanticInfo>>,
     userIntent?: string
   ): Promise<Omit<PageAnalysis, 'structuredData'>> {
-    const prompt = `You are analyzing a website screenshot and DOM structure. ${
-      userIntent ? `User wants to: "${userIntent}"` : ''
-    }
+    const prompt = `You are analyzing a website screenshot and DOM structure. ${userIntent ? `User wants to: "${userIntent}"` : ''
+      }
 
 **Page Information:**
 - Title: ${semantic.title || 'Unknown'}

@@ -5,6 +5,7 @@ import { anthropic } from "@ai-sdk/anthropic";
 import * as dotenv from "dotenv";
 import { join } from "path";
 import type { Window } from "./Window";
+import { MODELS } from "./agent/constants";
 
 // Load environment variables from .env file
 dotenv.config({ path: join(__dirname, "../../.env") });
@@ -22,7 +23,7 @@ interface StreamChunk {
 type LLMProvider = "openai" | "anthropic";
 
 const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  openai: "gpt-4o-mini",
+  openai: MODELS.MAIN,
   anthropic: "claude-3-5-sonnet-20241022",
 };
 
@@ -96,7 +97,7 @@ export class LLMClient {
         this.provider === "anthropic" ? "ANTHROPIC_API_KEY" : "OPENAI_API_KEY";
       console.error(
         `❌ LLM Client initialization failed: ${keyName} not found in environment variables.\n` +
-          `Please add your API key to the .env file in the project root.`
+        `Please add your API key to the .env file in the project root.`
       );
     }
   }
@@ -119,7 +120,7 @@ export class LLMClient {
 
       // Build user message content with screenshot first, then text
       const userContent: any[] = [];
-      
+
       // Add screenshot as the first part if available
       if (screenshot) {
         userContent.push({
@@ -127,7 +128,7 @@ export class LLMClient {
           image: screenshot,
         });
       }
-      
+
       // Add text content
       userContent.push({
         type: "text",
@@ -139,7 +140,7 @@ export class LLMClient {
         role: "user",
         content: userContent.length === 1 ? request.message : userContent,
       };
-      
+
       this.messages.push(userMessage);
 
       // Send updated messages to renderer
@@ -189,7 +190,7 @@ export class LLMClient {
     // Get page context from active tab
     let pageUrl: string | null = null;
     let pageText: string | null = null;
-    
+
     if (this.window) {
       const activeTab = this.window.activeTab;
       if (activeTab) {
@@ -275,7 +276,7 @@ export class LLMClient {
       role: "assistant",
       content: "",
     };
-    
+
     // Keep track of the index for updates
     const messageIndex = this.messages.length;
     this.messages.push(assistantMessage);

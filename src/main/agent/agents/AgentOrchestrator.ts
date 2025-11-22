@@ -15,7 +15,8 @@ import { FileCheckpointer } from '../utils/PersistentCheckpointer';
 import type { Window } from '../../Window';
 import type { Tab } from '../../Tab';
 import type { TaskResult, TaskPlan, SubagentTask } from '../types';
-import { RETRY_LIMITS, PLANNING } from '../constants';
+import { RETRY_LIMITS, PLANNING, LOOP_DETECTION, MODELS } from '../constants';
+
 
 /**
  * Enhanced state structure for autonomous agent with planning capabilities
@@ -106,7 +107,7 @@ export class AgentOrchestrator {
 
     // Initialize LLM
     this.llm = new ChatOpenAI({
-      model: process.env.LLM_MODEL || 'gpt-4o',
+      model: process.env.LLM_MODEL || MODELS.MAIN,
       temperature: 0.1,
       openAIApiKey: process.env.OPENAI_API_KEY,
     });
@@ -180,7 +181,7 @@ export class AgentOrchestrator {
         // Build system prompt with plan context
         const systemPrompt = this.buildSystemPrompt(goal, plan);
         const systemMessage = new HumanMessage({ content: systemPrompt });
-        
+
         // If we have a plan with current step, add a reminder to the messages
         const messagesWithReminder = [...messages];
         if (plan && plan.todos && plan.todos.length > 0) {
@@ -615,19 +616,29 @@ ${toolDescriptions}
    * Improved to catch reflection loops and repeated extractions earlier
    */
   private detectLoop(recentActions: string[]): boolean {
-    if (recentActions.length < 8) return false;
+    if (recentActions.length < LOOP_DETECTION.PATTERN_CHECK_LENGTH) return false;
 
     // Check for repeating patterns of 4 actions (more sensitive)
     const last8 = recentActions.slice(-8);
     const pattern1 = last8.slice(0, 4).join(',');
     const pattern2 = last8.slice(4, 8).join(',');
 
+    // If pattern matches, check if it's just parallel tools
     if (pattern1 === pattern2 && pattern1.length > 0) {
-      console.warn('⚠️  Loop detected: repeating 4-action pattern:', pattern1);
-      return true;
+      const actionsInPattern = last8.slice(0, 4);
+      const isAllParallelTools = actionsInPattern.every(action =>
+        LOOP_DETECTION.PARALLEL_TOOLS.includes(action)
+      );
+
+      // If it's just parallel tools (like create_new_tab repeated), allow it
+      // unless it's happening excessively (checked by count below)
+      if (!isAllParallelTools) {
+        console.warn('⚠️  Loop detected: repeating 4-action pattern:', pattern1);
+        return true;
+      }
     }
 
-    // Check if same action repeated 6+ times in last 10 (more sensitive)
+    // Check if same action repeated too many times in last 10
     const actionCounts = new Map<string, number>();
     const last10 = recentActions.slice(-10);
 
@@ -636,19 +647,23 @@ ${toolDescriptions}
     }
 
     for (const [action, count] of actionCounts.entries()) {
-      // More sensitive - catch loops earlier
-      if (count >= 6) {
-        console.warn(`⚠️  Loop detected: "${action}" repeated ${count} times in last 10 actions`);
+      const isParallelTool = LOOP_DETECTION.PARALLEL_TOOLS.includes(action);
+      const threshold = isParallelTool
+        ? LOOP_DETECTION.PARALLEL_TOOL_THRESHOLD
+        : LOOP_DETECTION.DEFAULT_THRESHOLD;
+
+      if (count >= threshold) {
+        console.warn(`⚠️  Loop detected: "${action}" repeated ${count} times in last 10 actions (Threshold: ${threshold})`);
         return true;
       }
     }
 
     // Check for reflection loops (extract -> analyze -> extract pattern)
     const last6 = recentActions.slice(-6);
-    const hasExtractLoop = last6.filter(a => 
+    const hasExtractLoop = last6.filter(a =>
       a.includes('extract') || a.includes('analyze')
     ).length >= 4;
-    
+
     if (hasExtractLoop) {
       console.warn('⚠️  Reflection loop detected: too many extract/analyze calls');
       return true;
@@ -671,13 +686,13 @@ ${toolDescriptions}
         .reverse()
         .filter((msg: any) => msg.constructor.name === 'ToolMessage')
         .slice(0, 5);
-      
+
       for (const toolMsg of lastToolMessages) {
         const content = String(toolMsg.content || '');
-        if (content.includes('created successfully') || 
-            content.includes('Excel file created') ||
-            content.includes('Word document created') ||
-            content.includes('PDF created')) {
+        if (content.includes('created successfully') ||
+          content.includes('Excel file created') ||
+          content.includes('Word document created') ||
+          content.includes('PDF created')) {
           console.log('✅ File created successfully - stopping execution');
           return 'end';
         }
@@ -894,18 +909,18 @@ ${toolDescriptions}
       const toolMessages = finalMessages.filter((msg: any) => msg.constructor.name === 'ToolMessage');
       const hasFileCreation = toolMessages.some((msg: any) => {
         const content = String(msg.content || '');
-        return content.includes('created successfully') || 
-               content.includes('Excel file created') ||
-               content.includes('Word document created') ||
-               content.includes('PDF created');
+        return content.includes('created successfully') ||
+          content.includes('Excel file created') ||
+          content.includes('Word document created') ||
+          content.includes('PDF created');
       });
 
       // Enhance output with document creation details
       if (createdDocuments.length > 0 || hasFileCreation) {
-        const docSummary = createdDocuments.length > 0 
+        const docSummary = createdDocuments.length > 0
           ? createdDocuments.map(doc =>
-              `📄 ${doc.type}: ${doc.filename}\n   📁 Location: ${doc.path}`
-            ).join('\n\n')
+            `📄 ${doc.type}: ${doc.filename}\n   📁 Location: ${doc.path}`
+          ).join('\n\n')
           : 'File created successfully (see tool responses above)';
 
         output = `✅ Task completed successfully!\n\n${docSummary}`;
@@ -919,10 +934,10 @@ ${toolDescriptions}
       // Determine success - check if output contains success indicators
       const outputLower = output.toString().toLowerCase();
       const success = outputLower.includes('excel file created') ||
-                     outputLower.includes('word document created') ||
-                     outputLower.includes('pdf created') ||
-                     outputLower.includes('successfully') ||
-                     !outputLower.includes('error');
+        outputLower.includes('word document created') ||
+        outputLower.includes('pdf created') ||
+        outputLower.includes('successfully') ||
+        !outputLower.includes('error');
 
       // Notify completion
       this.notifyProgress({

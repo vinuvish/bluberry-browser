@@ -30,6 +30,16 @@ export const RETRY_LIMITS = {
 } as const;
 
 /**
+ * Loop detection configuration
+ */
+export const LOOP_DETECTION = {
+  DEFAULT_THRESHOLD: 6,
+  PARALLEL_TOOL_THRESHOLD: 15, // Allow more repetitions for parallel tools (e.g. opening multiple tabs)
+  PARALLEL_TOOLS: ['create_new_tab', 'extract_smart_content', 'navigate'],
+  PATTERN_CHECK_LENGTH: 8,
+} as const;
+
+/**
  * Content limits
  */
 export const CONTENT_LIMITS = {
@@ -106,7 +116,7 @@ export const BLOCK_PATTERNS = {
  * Model configurations
  */
 export const MODELS = {
-  MAIN: 'gpt-4o',
+  MAIN: 'gpt-4o-mini',
   FAST: 'gpt-4o-mini',
   TEMPERATURE_MAIN: 0.1,
   TEMPERATURE_FAST: 0,

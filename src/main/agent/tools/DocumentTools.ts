@@ -100,6 +100,55 @@ async function createExcelFile(
 }
 
 /**
+ * Create CSV file with data
+ */
+async function createCSVFile(
+  data: Record<string, any>[] | Record<string, any>,
+  filename: string
+): Promise<string> {
+  // Convert data to array if it's a single object
+  const dataArray = Array.isArray(data) ? data : [data];
+
+  if (dataArray.length === 0) {
+    throw new Error('No data provided for CSV file');
+  }
+
+  // Extract headers from first object
+  const headers = Object.keys(dataArray[0]);
+
+  // Create CSV content  
+  const csvRows: string[] = [];
+
+  // Add header row
+  csvRows.push(headers.map(header => `"${header}"`).join(','));
+
+  // Add data rows
+  dataArray.forEach((item) => {
+    const values = headers.map((header) => {
+      const value = item[header] ?? '';
+      // Escape quotes and wrap in quotes if contains comma, quote, or newline
+      const stringValue = String(value);
+      if (stringValue.includes(',') || stringValue.includes('"') || stringValue.includes('\n')) {
+        return `"${stringValue.replace(/"/g, '""')}"`;
+      }
+      return stringValue;
+    });
+    csvRows.push(values.join(','));
+  });
+
+  const csvContent = csvRows.join('\n');
+
+  // Save file
+  const downloadsDir = getDownloadsDir();
+  const filePath = path.join(downloadsDir, filename);
+  console.log(`📁 Saving CSV file to: ${filePath}`);
+  fs.writeFileSync(filePath, csvContent, 'utf8');
+  console.log(`✅ CSV file saved successfully!`);
+
+  return filePath;
+}
+
+/**
  * Create Word document with formatted content
  */
 async function createWordDocument(
@@ -121,12 +170,12 @@ async function createWordDocument(
           // Title
           ...(content.title
             ? [
-                new Paragraph({
-                  text: content.title,
-                  heading: HeadingLevel.TITLE,
-                  spacing: { after: 400 },
-                }),
-              ]
+              new Paragraph({
+                text: content.title,
+                heading: HeadingLevel.TITLE,
+                spacing: { after: 400 },
+              }),
+            ]
             : []),
 
           // Sections
@@ -318,6 +367,39 @@ async function createPDFDocument(
  */
 export function createDocumentTools() {
   return [
+    // CSV generation
+    new DynamicStructuredTool({
+      name: 'create_csv',
+      description:
+        'Create a CSV (Comma-Separated Values) file from structured data. Perfect for data export, spreadsheet import, and data analysis. CSV files can be opened with Excel, Google Sheets, or any text editor.',
+      schema: z.object({
+        data: z
+          .union([z.array(z.record(z.any())), z.record(z.any())])
+          .describe(
+            'Data to include in CSV. Can be array of objects (for rows) or single object. Each object key becomes a column header.'
+          ),
+        filename: z
+          .string()
+          .optional()
+          .describe('Filename for the CSV file (optional, auto-generated if not provided)'),
+      }),
+      func: async ({ data, filename }) => {
+        try {
+          const finalFilename = filename || generateFilename('data', 'csv');
+          const filePath = await createCSVFile(data, finalFilename);
+
+          return `✅ CSV file created successfully!
+📁 Location: ${filePath}
+📊 Rows: ${Array.isArray(data) ? data.length : 1}
+📋 Columns: ${Object.keys(Array.isArray(data) ? data[0] : data).length}
+
+The file has been saved to your Downloads folder and can be opened with Excel, Google Sheets, or any text editor.`;
+        } catch (error) {
+          return `❌ Failed to create CSV file: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      },
+    }),
+
     // Excel generation
     new DynamicStructuredTool({
       name: 'create_excel',
