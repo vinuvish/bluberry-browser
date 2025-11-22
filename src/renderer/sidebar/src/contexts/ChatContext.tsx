@@ -8,13 +8,27 @@ interface Message {
     isStreaming?: boolean
 }
 
+interface AgentProgress {
+    agentId: string
+    tabId: string
+    status: 'idle' | 'working' | 'completed' | 'error'
+    progress: number
+    currentThought?: string
+    currentAction?: string
+    currentUrl?: string
+}
+
 interface ChatContextType {
     messages: Message[]
     isLoading: boolean
+    agentMode: boolean
+    agentProgress: Map<string, AgentProgress>
+    agentPlan: any | null
 
     // Chat actions
     sendMessage: (content: string) => Promise<void>
     clearChat: () => void
+    setAgentMode: (enabled: boolean) => void
 
     // Page content access
     getPageContent: () => Promise<string | null>
@@ -35,6 +49,9 @@ export const useChat = () => {
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [messages, setMessages] = useState<Message[]>([])
     const [isLoading, setIsLoading] = useState(false)
+    const [agentMode, setAgentMode] = useState(false)
+    const [agentProgress, setAgentProgress] = useState<Map<string, AgentProgress>>(new Map())
+    const [agentPlan, setAgentPlan] = useState<any | null>(null)
 
     // Load initial messages from main process
     useEffect(() => {
@@ -65,26 +82,51 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoading(true)
 
         try {
-            const messageId = Date.now().toString()
+            if (agentMode) {
+                // Agent mode - execute autonomous task
+                const userMessage: Message = {
+                    id: `user-${Date.now()}`,
+                    role: 'user',
+                    content,
+                    timestamp: Date.now()
+                }
+                setMessages(prev => [...prev, userMessage])
 
-            // Send message to main process (which will handle context)
-            await window.sidebarAPI.sendChatMessage({
-                message: content,
-                messageId: messageId
-            })
+                const result = await window.sidebarAPI.executeAgent(content)
 
-            // Messages will be updated via the chat-messages-updated event
+                const agentMessage: Message = {
+                    id: `agent-${Date.now()}`,
+                    role: 'assistant',
+                    content: result.success ? result.output : `Error: ${result.error}`,
+                    timestamp: Date.now()
+                }
+                setMessages(prev => [...prev, agentMessage])
+            } else {
+                // Normal chat mode
+                const messageId = Date.now().toString()
+
+                // Send message to main process (which will handle context)
+                await window.sidebarAPI.sendChatMessage({
+                    message: content,
+                    messageId: messageId
+                })
+
+                // Messages will be updated via the chat-messages-updated event
+            }
         } catch (error) {
             console.error('Failed to send message:', error)
         } finally {
             setIsLoading(false)
         }
-    }, [])
+    }, [agentMode])
 
     const clearChat = useCallback(async () => {
         try {
             await window.sidebarAPI.clearChat()
+            await window.sidebarAPI.resetAgent()
             setMessages([])
+            setAgentProgress(new Map())
+            setAgentPlan(null)
         } catch (error) {
             console.error('Failed to clear chat:', error)
         }
@@ -132,8 +174,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             const convertedMessages = updatedMessages.map((msg: any, index: number) => ({
                 id: `msg-${index}`,
                 role: msg.role,
-                content: typeof msg.content === 'string' 
-                    ? msg.content 
+                content: typeof msg.content === 'string'
+                    ? msg.content
                     : msg.content.find((p: any) => p.type === 'text')?.text || '',
                 timestamp: Date.now(),
                 isStreaming: false
@@ -141,20 +183,83 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setMessages(convertedMessages)
         }
 
+        // Listen for agent progress updates
+        const handleAgentProgress = (progress: AgentProgress) => {
+            setAgentProgress(prev => {
+                const updated = new Map(prev)
+                updated.set(progress.agentId, progress)
+                return updated
+            })
+
+            // Add progress as a message if there's a thought
+            if (progress.currentThought && progress.status === 'working') {
+                setMessages(prev => {
+                    // Check if we already have a recent progress message to avoid duplicates
+                    const lastMessage = prev[prev.length - 1]
+                    if (lastMessage?.content === progress.currentThought) {
+                        return prev
+                    }
+
+                    return [...prev, {
+                        id: `progress-${Date.now()}`,
+                        role: 'assistant',
+                        content: `🤖 ${progress.currentThought}`,
+                        timestamp: Date.now()
+                    }]
+                })
+            }
+        }
+
+        // Listen for agent plan updates
+        const handleAgentPlan = (plan: any) => {
+            setAgentPlan(plan)
+
+            // Add plan as a message
+            if (plan && plan.taskName) {
+                let planMessage = `📋 **Plan:** ${plan.taskName}\n\n`
+
+                if (plan.parallelTasks && plan.parallelTasks.length > 0) {
+                    planMessage += `Running ${plan.parallelTasks.length} tasks in parallel:\n`
+                    plan.parallelTasks.forEach((task: any, i: number) => {
+                        planMessage += `${i + 1}. ${task.description}\n`
+                    })
+                }
+
+                if (plan.estimatedTime) {
+                    planMessage += `\n⏱️ Estimated time: ${plan.estimatedTime}`
+                }
+
+                setMessages(prev => [...prev, {
+                    id: `plan-${Date.now()}`,
+                    role: 'assistant',
+                    content: planMessage,
+                    timestamp: Date.now()
+                }])
+            }
+        }
+
         window.sidebarAPI.onChatResponse(handleChatResponse)
         window.sidebarAPI.onMessagesUpdated(handleMessagesUpdated)
+        window.sidebarAPI.onAgentProgress(handleAgentProgress)
+        window.sidebarAPI.onAgentPlanUpdate(handleAgentPlan)
 
         return () => {
             window.sidebarAPI.removeChatResponseListener()
             window.sidebarAPI.removeMessagesUpdatedListener()
+            window.sidebarAPI.removeAgentProgressListener()
+            window.sidebarAPI.removeAgentPlanListener()
         }
     }, [])
 
     const value: ChatContextType = {
         messages,
         isLoading,
+        agentMode,
+        agentProgress,
+        agentPlan,
         sendMessage,
         clearChat,
+        setAgentMode,
         getPageContent,
         getPageText,
         getCurrentUrl

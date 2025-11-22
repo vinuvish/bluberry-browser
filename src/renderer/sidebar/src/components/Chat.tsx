@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useLayoutEffect } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkBreaks from 'remark-breaks'
-import { ArrowUp, Square, Sparkles, Plus } from 'lucide-react'
+import { ArrowUp, Plus, Bot, MessageSquare } from 'lucide-react'
 import { useChat } from '../contexts/ChatContext'
 import { cn } from '@common/lib/utils'
 import { Button } from '@common/components/Button'
@@ -59,6 +59,7 @@ const StreamingText: React.FC<{ content: string }> = ({ content }) => {
             }, 10)
             return () => clearTimeout(timer)
         }
+        return undefined
     }, [content, currentIndex])
 
     return (
@@ -263,7 +264,7 @@ const ConversationTurnComponent: React.FC<{
 
 // Main Chat Component
 export const Chat: React.FC = () => {
-    const { messages, isLoading, sendMessage, clearChat } = useChat()
+    const { messages, isLoading, sendMessage, clearChat, agentMode, setAgentMode, agentProgress } = useChat()
     const scrollRef = useAutoScroll(messages)
 
     // Group messages into conversation turns
@@ -291,19 +292,62 @@ export const Chat: React.FC = () => {
         <div className="flex flex-col h-full bg-background">
             {/* Messages Area */}
             <div className="flex-1 overflow-y-auto">
-                <div className="h-8 max-w-3xl mx-auto px-4">
-                    {/* New Chat Button - Floating */}
+                <div className="h-8 max-w-3xl mx-auto px-4 flex items-center justify-between">
+                    {/* Agent Mode Toggle */}
+                    <Button
+                        onClick={() => setAgentMode(!agentMode)}
+                        title={agentMode ? "Switch to Chat Mode" : "Switch to Agent Mode"}
+                        variant={agentMode ? "default" : "ghost"}
+                        size="sm"
+                    >
+                        {agentMode ? <Bot className="size-4" /> : <MessageSquare className="size-4" />}
+                        {agentMode ? "Agent Mode" : "Chat Mode"}
+                    </Button>
+
+                    {/* New Chat Button */}
                     {messages.length > 0 && (
                         <Button
                             onClick={clearChat}
                             title="Start new chat"
                             variant="ghost"
+                            size="sm"
                         >
                             <Plus className="size-4" />
                             New Chat
                         </Button>
                     )}
                 </div>
+
+                {/* Agent Progress Indicators */}
+                {agentMode && agentProgress.size > 0 && (
+                    <div className="max-w-3xl mx-auto px-4 py-2">
+                        {Array.from(agentProgress.values()).map(progress => (
+                            <div key={progress.agentId} className="mb-2 p-2 bg-muted rounded-lg text-sm">
+                                <div className="flex items-center gap-2">
+                                    <span className={cn(
+                                        "w-2 h-2 rounded-full",
+                                        progress.status === 'working' ? 'bg-green-500 animate-pulse' :
+                                        progress.status === 'completed' ? 'bg-blue-500' :
+                                        progress.status === 'error' ? 'bg-red-500' :
+                                        'bg-gray-500'
+                                    )} />
+                                    <span className="font-medium">{progress.agentId}</span>
+                                </div>
+                                {progress.currentThought && (
+                                    <p className="text-muted-foreground mt-1">💭 {progress.currentThought}</p>
+                                )}
+                                {progress.progress > 0 && (
+                                    <div className="mt-1 h-1 bg-background rounded-full overflow-hidden">
+                                        <div
+                                            className="h-full bg-primary transition-all duration-300"
+                                            style={{ width: `${progress.progress}%` }}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
 
                 <div className="pb-4 relative max-w-3xl mx-auto px-4">
 

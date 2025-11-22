@@ -2,6 +2,8 @@ import { BaseWindow, shell } from "electron";
 import { Tab } from "./Tab";
 import { TopBar } from "./TopBar";
 import { SideBar } from "./SideBar";
+import { PuppeteerManager } from "./PuppeteerManager"; // Added import
+import type { TaskScheduler } from "./scheduler/TaskScheduler";
 
 export class Window {
   private _baseWindow: BaseWindow;
@@ -10,8 +12,11 @@ export class Window {
   private tabCounter: number = 0;
   private _topBar: TopBar;
   private _sideBar: SideBar;
+  private _puppeteerManager: PuppeteerManager;
+  private _taskScheduler?: TaskScheduler;
 
-  constructor() {
+  constructor(puppeteerManager?: PuppeteerManager, taskScheduler?: TaskScheduler) {
+    this._taskScheduler = taskScheduler;
     // Create the browser window.
     this._baseWindow = new BaseWindow({
       width: 1000,
@@ -30,6 +35,16 @@ export class Window {
 
     // Set the window reference on the LLM client to avoid circular dependency
     this._sideBar.client.setWindow(this);
+
+    // Use provided PuppeteerManager or create a new one
+    if (puppeteerManager) {
+      this._puppeteerManager = puppeteerManager;
+    } else {
+      this._puppeteerManager = new PuppeteerManager();
+      this._puppeteerManager.initialize().catch(err => {
+        console.error('Failed to initialize Puppeteer:', err);
+      });
+    }
 
     // Create the first tab
     this.createTab();
@@ -269,5 +284,14 @@ export class Window {
   // Getter for baseWindow to access from Menu
   get baseWindow(): BaseWindow {
     return this._baseWindow;
+  }
+
+  // Getter for PuppeteerManager
+  get puppeteerManager(): PuppeteerManager {
+    return this._puppeteerManager;
+  }
+
+  get taskScheduler(): TaskScheduler | undefined {
+    return this._taskScheduler;
   }
 }

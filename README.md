@@ -83,3 +83,54 @@ $ pnpm dev
 **Add an OpenAI API key to `.env`** in the root folder.
 
 Strawberry will reimburse LLM costs, so go crazy! *(Please not more than a few hundred dollars though!)*
+
+---
+
+## 🤖 Puppeteer Integration
+
+Blueberry Browser now includes **full Puppeteer integration** through `puppeteer-in-electron`, enabling advanced browser automation and control.
+
+### Features
+
+- ✅ Control any browser tab with Puppeteer's complete API
+- ✅ Automated form filling and data extraction
+- ✅ Advanced screenshot capabilities
+- ✅ Network request interception and monitoring
+- ✅ JavaScript evaluation in page context
+- ✅ Element interaction (click, type, select, etc.)
+- ✅ Wait strategies and navigation handling
+- ✅ Device and network condition emulation
+
+### Quick Start
+
+```typescript
+import { puppeteerManager } from './index';
+
+// Get active tab
+const activeTab = window.activeTab;
+
+// Get Puppeteer page for the tab
+const page = await puppeteerManager?.getPageForTab(activeTab);
+
+// Use Puppeteer API
+await page.goto('https://example.com');
+await page.click('#button');
+const text = await page.$eval('h1', el => el.textContent);
+```
+
+### Examples
+
+See [PUPPETEER_EXAMPLES.md](./PUPPETEER_EXAMPLES.md) for comprehensive usage examples including:
+- Web scraping
+- Form automation
+- Testing workflows
+- Data extraction
+- Network interception
+- And much more!
+
+### Dependencies
+
+The following packages have been added:
+- `puppeteer-in-electron` - Bridge between Puppeteer and Electron
+- `puppeteer-core` - Puppeteer without bundled Chromium (uses Electron's Chromium)
+# bluberry-browser

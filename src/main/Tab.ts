@@ -19,6 +19,7 @@ export class Tab {
         contextIsolation: true,
         sandbox: true,
         webSecurity: true,
+        backgroundThrottling: false, // CRITICAL: Allow background tabs to load fully
       },
     });
 
@@ -42,6 +43,39 @@ export class Tab {
 
     this.webContentsView.webContents.on("did-navigate-in-page", (_, url) => {
       this._url = url;
+    });
+
+    // Handle unhandled navigation failures gracefully
+    this.webContentsView.webContents.on("did-fail-load", (_event, errorCode, errorDescription, validatedURL) => {
+      // Only log if it's not a blocked resource (ads, tracking, etc.)
+      if (errorCode !== -27 && errorCode !== -106 && errorCode !== -3) {
+        // Check if it's an ad/tracking URL
+        if (validatedURL && (
+          validatedURL.includes('adx') || 
+          validatedURL.includes('analytics') || 
+          validatedURL.includes('tracking') ||
+          validatedURL.includes('pixel') ||
+          validatedURL.includes('doubleclick') ||
+          validatedURL.includes('googletagmanager')
+        )) {
+          // Silently ignore ad/tracking failures
+          return;
+        }
+        
+        // Log other failures but don't throw (they're handled in loadURL)
+        if (errorCode !== -118) { // Don't log timeouts for non-critical resources
+          console.warn(`⚠️  Navigation failure: ${errorDescription} (code: ${errorCode}) for ${validatedURL}`);
+        }
+      }
+    });
+
+    // Handle unhandled promise rejections from navigation
+    this.webContentsView.webContents.on("unresponsive", () => {
+      console.warn(`⚠️  Tab ${this.id} became unresponsive`);
+    });
+
+    this.webContentsView.webContents.on("responsive", () => {
+      console.log(`✅ Tab ${this.id} became responsive again`);
     });
   }
 
@@ -90,16 +124,74 @@ export class Tab {
   }
 
   async getTabHtml(): Promise<string> {
-    return await this.runJs("return document.documentElement.outerHTML");
+    return await this.runJs("document.documentElement.outerHTML");
   }
 
   async getTabText(): Promise<string> {
-    return await this.runJs("return document.documentElement.innerText");
+    return await this.runJs("document.documentElement.innerText");
   }
 
-  loadURL(url: string): Promise<void> {
+  async loadURL(url: string): Promise<void> {
     this._url = url;
-    return this.webContentsView.webContents.loadURL(url);
+
+    // Create promise that resolves when page finishes loading
+    const loadPromise = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        reject(new Error(`Navigation timeout for ${url}`));
+      }, 30000); // 30 second timeout
+
+      // Listen for load completion
+      const onFinishLoad = () => {
+        clearTimeout(timeout);
+        this.webContentsView.webContents.removeListener('did-finish-load', onFinishLoad);
+        this.webContentsView.webContents.removeListener('did-fail-load', onFailLoad);
+        resolve();
+      };
+
+      const onFailLoad = (_event: any, errorCode: number, errorDescription: string, validatedURL: string) => {
+        clearTimeout(timeout);
+        this.webContentsView.webContents.removeListener('did-finish-load', onFinishLoad);
+        this.webContentsView.webContents.removeListener('did-fail-load', onFailLoad);
+
+        // Ignore aborted navigations (happens when user navigates away quickly)
+        if (errorCode === -3) {
+          resolve();
+          return;
+        }
+
+        // Ignore blocked responses (ads, tracking, etc.) - these are not critical failures
+        if (errorCode === -27 || errorCode === -106) {
+          console.warn(`⚠️  Blocked resource load: ${validatedURL} (code: ${errorCode}) - This is normal for ads/tracking`);
+          resolve();
+          return;
+        }
+
+        // Ignore connection timeouts for non-main resources (ads, analytics, etc.)
+        if (errorCode === -118 && validatedURL && (
+          validatedURL.includes('adx') || 
+          validatedURL.includes('analytics') || 
+          validatedURL.includes('tracking') ||
+          validatedURL.includes('pixel')
+        )) {
+          console.warn(`⚠️  Timeout loading resource: ${validatedURL} (code: ${errorCode}) - This is normal for ads/tracking`);
+          resolve();
+          return;
+        }
+
+        reject(new Error(`Navigation failed: ${errorDescription} (code: ${errorCode})`));
+      };
+
+      this.webContentsView.webContents.once('did-finish-load', onFinishLoad);
+      this.webContentsView.webContents.once('did-fail-load', onFailLoad);
+    });
+
+    // Start navigation
+    await this.webContentsView.webContents.loadURL(url);
+
+    // Wait for it to complete
+    await loadPromise;
+
+    console.log(`✅ Tab ${this.id} finished loading: ${url}`);
   }
 
   goBack(): void {

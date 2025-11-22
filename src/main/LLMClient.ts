@@ -166,12 +166,23 @@ export class LLMClient {
     this.sendMessagesToRenderer();
   }
 
+  addMessage(message: CoreMessage): void {
+    this.messages.push(message);
+    this.sendMessagesToRenderer();
+  }
+
   getMessages(): CoreMessage[] {
     return this.messages;
   }
 
   private sendMessagesToRenderer(): void {
-    this.webContents.send("chat-messages-updated", this.messages);
+    try {
+      if (!this.webContents.isDestroyed()) {
+        this.webContents.send("chat-messages-updated", this.messages);
+      }
+    } catch (error) {
+      // Silently ignore errors when renderer is disposed
+    }
   }
 
   private async prepareMessagesWithContext(_request: ChatRequest): Promise<CoreMessage[]> {
@@ -344,10 +355,16 @@ export class LLMClient {
   }
 
   private sendStreamChunk(messageId: string, chunk: StreamChunk): void {
-    this.webContents.send("chat-response", {
-      messageId,
-      content: chunk.content,
-      isComplete: chunk.isComplete,
-    });
+    try {
+      if (!this.webContents.isDestroyed()) {
+        this.webContents.send("chat-response", {
+          messageId,
+          content: chunk.content,
+          isComplete: chunk.isComplete,
+        });
+      }
+    } catch (error) {
+      // Silently ignore errors when renderer is disposed
+    }
   }
 }
